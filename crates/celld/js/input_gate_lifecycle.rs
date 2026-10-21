@@ -61,6 +61,14 @@ pub(super) struct CrossEntryGateClaims {
 }
 
 impl IoContext {
+    /// Whether a claim could still succeed: false once the event retired.
+    pub(super) fn accepts_cross_entry_gate(&self) -> bool {
+        matches!(
+            self.cross_entry_gates.state.lock().unwrap().lifecycle,
+            CrossEntryGateLifecycle::Accepting { .. }
+        )
+    }
+
     /// Claim this event before a block can outlive its own turn. The lock
     /// makes the claim atomic with terminal retirement: either the event stays
     /// active, or the stale block is refused before it can acquire a gate.

@@ -1,5 +1,14 @@
 # celld
 
+> **githubnext/celld** is celld v0.6.2 plus a fix for
+> [denoland/celld#277](https://github.com/denoland/celld/issues/277): work that one event starts and a
+> later event resumes can use storage, timers and `fetch` again. [Ace](https://github.com/githubnext/ace)
+> runs its team services on it until the fix lands upstream. Install it with the stock installer:
+>
+> ```sh
+> curl -fsSL https://celld.dev/install.sh | CELLD_RELEASES_URL=https://github.com/githubnext/celld/releases sh
+> ```
+
 Self-hosted, distributed **Durable Objects**.
 
 celld is an open-source daemon that runs a Cloudflare Workers application

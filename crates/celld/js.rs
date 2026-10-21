@@ -6457,7 +6457,11 @@ macro_rules! ops {
                     let before = asyncrt::spawn_count();
                     $op(scope, args, rv);
                     if asyncrt::spawn_count() != before {
-                        if let Some(owner) = operation_continuation_id(scope) {
+                        // A continuation whose event retired has no driver left to poll its
+                        // operations, so the running event adopts them (denoland/celld#277).
+                        if let Some(owner) = operation_continuation_id(scope)
+                            .filter(|id| actor_runtime_state(scope).io_context(*id).is_some())
+                        {
                             asyncrt::attribute_spawns(before, owner);
                         }
                     }
@@ -9557,6 +9561,18 @@ fn return_gate_acquisition(
     rv.set(v8::Array::new_with_elements(scope, &values).into());
 }
 
+/// The running event, when it is a tracked event of `cell`.
+///
+/// Workerd lets any code in a live actor use its storage. A continuation whose
+/// own event retired resumes during another event's checkpoint; that event
+/// belongs to the same actor only when its frame names the same cell, and only
+/// then may it take the gate on the continuation's behalf (denoland/celld#277).
+fn live_cell_context(cell: &str) -> Option<Arc<IoContext>> {
+    let context = current_context();
+    context.continuation_id()?;
+    (current_cell_event(&context)?.storage == cell).then_some(context)
+}
+
 /// `__gate_acquire(scope)` — take the cell's input gate for a
 /// `blockConcurrencyWhile`, waiting if another block holds it.
 ///
@@ -9574,9 +9590,16 @@ fn op_gate_acquire(
 ) {
     let cell = args.get(0).to_rust_string_lossy(scope);
     let event = NEXT_GATE_EVENT.fetch_add(1, Ordering::Relaxed);
-    let contexts = current_reaction_io_context(scope).zip(
-        operation_continuation_id(scope).and_then(|id| actor_runtime_state(scope).io_context(id)),
-    );
+    let contexts = current_reaction_io_context(scope)
+        .zip(
+            operation_continuation_id(scope)
+                .and_then(|id| actor_runtime_state(scope).io_context(id)),
+        )
+        // A retired origin can stay registered while something still holds it.
+        .filter(|(context, owner)| {
+            Arc::ptr_eq(context, owner) || context.accepts_cross_entry_gate()
+        })
+        .or_else(|| live_cell_context(&cell).map(|context| (context.clone(), context)));
     let Some((context, owner_context)) = contexts else {
         // A promise can retain user code after its event has retired. It must
         // not borrow the context of whichever event happens to run the stale
